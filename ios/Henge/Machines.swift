@@ -29,9 +29,12 @@ struct VirtualMac: Identifiable, Codable, Hashable {
     /// "windows" for a Windows on Arm machine (WindowsView.swift): a disk, the UEFI firmware's variables and,
     /// until Windows is installed, the installation disc.
     var isWindows: Bool { system == "windows" }
+    /// Linux installed via the UEFI machine uses the same board and media as Windows.
+    var isUEFILinux: Bool { isWindows && osName == "Linux" }
+    var usesLinuxKeyboard: Bool { isLinux || isUEFILinux }
     var isMac: Bool { !isLinux && !isWindows }
     /// What the machine is, in the session's words.
-    var guestName: String { isWindows ? "Windows" : isLinux ? "Linux" : "Mac" }
+    var guestName: String { usesLinuxKeyboard ? "Linux" : isWindows ? "Windows" : "Mac" }
     var theGuest: String { isMac ? "The Mac" : guestName }
     var theGuests: String { isMac ? "the Mac's" : guestName + "'s" }
 

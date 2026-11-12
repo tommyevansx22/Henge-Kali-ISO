@@ -207,7 +207,7 @@ struct SessionView: View {
         }
         .onAppear {
             UIApplication.shared.isIdleTimerDisabled = true
-            HardwareKeys.start(linux: mac.isLinux)
+            HardwareKeys.start(linux: mac.usesLinuxKeyboard)
             HardwareMouse.shared.start()
             VolumeClicks.shared.start()
         }
@@ -305,7 +305,7 @@ struct SessionView: View {
                 Spacer()
                 tool("keyboard", "Keyboard") { typing = true }
                 Spacer()
-                if mac.isLinux {
+                if mac.usesLinuxKeyboard {
                     superTool(tint: Desk.text)
                     Spacer()
                 }
@@ -428,7 +428,7 @@ struct SessionView: View {
         let pill = HStack(spacing: 4) {
             tool("eye.slash", "Hide controls", tint: .white) { hideControls() }
             tool("keyboard", "Keyboard", tint: .white) { typing.toggle() }
-            if mac.isLinux { superTool(tint: .white) }
+            if mac.usesLinuxKeyboard { superTool(tint: .white) }
             pasteTool
             tool(zoomed ? "minus.magnifyingglass" : "plus.magnifyingglass", zoomed ? "Zoom out" : "Zoom in", tint: zoomed ? Desk.accentLight : .white) { zoomed.toggle() }
             tool("info.circle", "Details", tint: .white) { showDetails = true }
@@ -552,7 +552,7 @@ struct SessionView: View {
                     Text("\(mac.theGuest) supplies a small pointer image. Enlarging it can look blurry; 1× is the sharpest on an iPad. Scroll speed changes apply immediately.")
                         .font(.footnote).foregroundStyle(.secondary)
                 }
-                if mac.isWindows {
+                if mac.isWindows && !mac.isUEFILinux {
                 Section("Windows Setup") {
                     Button("Type the Requirements Commands") {
                         showDetails = false
@@ -572,7 +572,7 @@ struct SessionView: View {
                         .font(.footnote).foregroundStyle(.secondary)
                 }
                 }
-                if mac.isWindows {
+                if mac.isWindows && !mac.isUEFILinux {
                 Section("GPU Driver") {
                     Button("Type the GPU Driver Command") {
                         showDetails = false
@@ -711,8 +711,8 @@ struct SessionView: View {
             // In the drive: the installation disc, or else the disc with the GPU driver.
             let tools = FileManager.default.fileExists(atPath: mac.tools.path)
             let disc = media ? mac.media.path : tools ? mac.tools.path : nil
-            let gpu = mac.gpu == false ? nil : EngineTuning.windowsGPU
-            HengeLog.log("session", "Windows: disc \(disc.map { ($0 as NSString).lastPathComponent } ?? "none"), GPU \(gpu == nil ? "off" : "on")")
+            let gpu = mac.isUEFILinux || mac.gpu == false ? nil : EngineTuning.windowsGPU
+            HengeLog.log("session", "\(mac.guestName): disc \(disc.map { ($0 as NSString).lastPathComponent } ?? "none"), GPU \(gpu == nil ? "off" : "on")")
             let gpuOnly = gpu != nil && mac.gpuDriver == true
             rc = henge_vm_boot_uefi(firmware, mac.vars.path, mac.disk.path, disc, ram, Int32(cpus),
                                     UInt32(mac.screen.width), UInt32(mac.screen.height), gpu, gpuOnly ? 1 : 0, &buffer, buffer.count)

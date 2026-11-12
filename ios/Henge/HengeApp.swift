@@ -54,7 +54,7 @@ struct RootView: View {
                     .tabItem { Label("Linux", systemImage: "terminal") }
                     .tag(Tab.linux)
                 WindowsView(running: $running)
-                    .tabItem { Label("Windows", systemImage: "pc") }
+                    .tabItem { Label("ISO VM", systemImage: "pc") }
                     .tag(Tab.windows)
                 InstallView()
                     .tabItem { Label("Install", systemImage: "arrow.down.circle") }

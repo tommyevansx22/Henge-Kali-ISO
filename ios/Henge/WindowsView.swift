@@ -4,7 +4,7 @@ import UniformTypeIdentifiers
 /// The UEFI firmware a Windows machine starts from: EDK2's ArmVirtQemu, as QEMU ships it, carried in the
 /// app gzipped (scripts/fetch_uefi.sh) and unpacked once to where the engine can read it.
 enum WindowsFirmware {
-    static let missing = "This build of Henge has no UEFI firmware, which Windows starts from (ios/scripts/fetch_uefi.sh fetches it before a build)."
+    static let missing = "This build of Henge has no UEFI firmware (ios/scripts/fetch_uefi.sh fetches it before a build)."
 
     static var bundled: URL? { Bundle.main.url(forResource: "edk2-aarch64-code.fd", withExtension: "gz") }
 
@@ -79,8 +79,8 @@ final class WindowsInstaller: ObservableObject {
 
     /// A new machine with a blank disk of diskGB (a sparse file: it takes space as Windows fills it) and the
     /// ISO as its installation disc. Starting it starts Setup.
-    func create(from iso: URL, name: String, ramMB: Int, diskGB: Int) {
-        make(name: name, ramMB: ramMB, working: "Copying \(iso.lastPathComponent)…", source: iso) { mac in
+    func create(from iso: URL, name: String, ramMB: Int, diskGB: Int, guestOS: String = "Windows") {
+        make(name: name, ramMB: ramMB, working: "Copying \(iso.lastPathComponent)…", source: iso, guestOS: guestOS) { mac in
             let fm = FileManager.default
             guard fm.createFile(atPath: mac.disk.path, contents: nil) else { throw Self.message("The disk could not be made.") }
             let handle = try FileHandle(forWritingTo: mac.disk)
@@ -132,7 +132,7 @@ final class WindowsInstaller: ObservableObject {
     }
 
     /// Copies source to where prepare says (after it has made what else the machine needs), and lists the machine.
-    private func make(name: String, ramMB: Int, working text: String, source: URL,
+    private func make(name: String, ramMB: Int, working text: String, source: URL, guestOS: String = "Windows",
                       prepare: @escaping @Sendable (VirtualMac) throws -> URL) {
         guard !busy else { return }
         working = text
@@ -143,7 +143,7 @@ final class WindowsInstaller: ObservableObject {
             defer { working = nil; UIApplication.shared.isIdleTimerDisabled = false }
             var mac = VirtualMac(name: name, ecid: 0, seed: 0, ramMB: ramMB, diskBytes: 0)
             mac.system = "windows"
-            mac.osName = "Windows"
+            mac.osName = guestOS
             (mac.screenWidth, mac.screenHeight) = Device.windowsScreen
             let fm = FileManager.default
             do {
@@ -182,7 +182,7 @@ final class WindowsInstaller: ObservableObject {
                 mac.diskBytes = (try? fm.attributesOfItem(atPath: mac.disk.path)[.size] as? Int64) ?? 0
                 let info = MachineFile(name: mac.name, system: "windows", ecid: 0, seed: 0, ramMB: mac.ramMB)
                 try JSONEncoder().encode(info).write(to: mac.directory.appendingPathComponent("machine.json"))
-                try "Windows".write(to: mac.directory.appendingPathComponent(Machines.installedMarker), atomically: true, encoding: .utf8)
+                try guestOS.write(to: mac.directory.appendingPathComponent(Machines.installedMarker), atomically: true, encoding: .utf8)
                 Machines.shared.add(mac)
                 HengeLog.log("windows", "made \(mac.name) from \(source.lastPathComponent) (\(mac.diskBytes >> 30) GB disk)")
             } catch {
@@ -210,6 +210,7 @@ struct WindowsView: View {
     @State private var pickingDisk = false
     @State private var ramGB = min(max(Device.suggestedRAMGB, 2), 4)
     @State private var diskGB = 64
+    @State private var isoSystem = "Linux"
     @AppStorage("henge.cpus") private var cpus = 4
 
     private var all: [VirtualMac] { machines.all.filter(\.isWindows) }
@@ -237,14 +238,19 @@ struct WindowsView: View {
                 .deskColumn()
             }
             .background(Desk.page)
-            .navigationTitle("Windows")
+            .navigationTitle("ISO VM")
             .navigationDestination(for: VirtualMac.self) { WindowsSettingsView(machine: $0) }
             // Two importers on one view: only the last would work, so each has a view of its own.
             .background {
                 Color.clear.fileImporter(isPresented: $pickingISO, allowedContentTypes: [Self.iso, .diskImage, .data]) { result in
                     guard case let .success(url) = result else { return }
-                    let n = all.count
-                    installer.create(from: url, name: n == 0 ? "Windows" : "Windows \(n + 1)", ramMB: ramGB * 1024, diskGB: diskGB)
+                    guard url.pathExtension.lowercased() == "iso" else {
+                        installer.failure = "Choose an ARM64 installation file ending in .iso."
+                        return
+                    }
+                    let n = all.filter { $0.osName == isoSystem }.count
+                    installer.create(from: url, name: n == 0 ? isoSystem : "\(isoSystem) \(n + 1)",
+                                     ramMB: ramGB * 1024, diskGB: diskGB, guestOS: isoSystem)
                 }
             }
             .background {
@@ -300,7 +306,7 @@ struct WindowsView: View {
                         .padding(.horizontal, 5)
                         .padding(.top, 3)
                     if FileManager.default.fileExists(atPath: m.media.path) {
-                        Text("The installation disc is in its drive. Starting a machine with nothing on its disk starts Setup: see Details in the session for what Setup needs typed.")
+                        Text(m.isUEFILinux ? "The installation disc is in its drive. Start the machine to try its installer." : "The installation disc is in its drive. Starting a machine with nothing on its disk starts Setup: see Details in the session for what Setup needs typed.")
                             .font(.system(size: 13))
                             .foregroundStyle(Desk.dim)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -336,7 +342,7 @@ struct WindowsView: View {
     @ViewBuilder private func others(besides shown: VirtualMac) -> some View {
         let rest = all.filter { $0.id != shown.id }
         if !rest.isEmpty {
-            DeskHeading("Other Windows machines")
+            DeskHeading("Other ISO machines")
             VStack(spacing: 0) {
                 ForEach(rest) { other in
                     Button { chosen = other.id } label: {
@@ -387,17 +393,23 @@ struct WindowsView: View {
                     .frame(maxWidth: .infinity)
                     .frame(height: 150)
                     .background(Desk.raised.opacity(0.5), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                Text("No Windows yet").font(.system(size: 24, weight: .bold)).frame(maxWidth: .infinity)
+                Text("No ISO machines yet").font(.system(size: 24, weight: .bold)).frame(maxWidth: .infinity)
             } else {
-                Text("Add Windows").font(.system(size: 20, weight: .bold))
+                Text("Add an ISO machine").font(.system(size: 20, weight: .bold))
             }
             VStack(alignment: .leading, spacing: 4) {
-                Text("Windows 11 on Arm").font(.system(size: 17, weight: .semibold))
-                Text("Installed from Microsoft's own disc image: the arm64 ISO from microsoft.com/software-download/windows11arm64, saved to Files. Henge has no Windows of its own to offer, and a license is Microsoft's to give.")
+                Text("Install from an ARM64 ISO").font(.system(size: 17, weight: .semibold))
+                Text("Choose an ARM64 installer ISO saved in Files. Linux ISO boot is experimental and requires a UEFI-compatible installer; compatibility varies by distribution.")
                     .font(.system(size: 13)).foregroundStyle(Desk.dim)
-                Text("Setup takes a long while on emulated CPUs, and the disc is about 6 GB more until it is removed.")
+                Text("Setup can take a long time. The ISO is copied into the machine until you remove its installation disc.")
                     .font(.system(size: 13)).foregroundStyle(Desk.dim)
             }
+            Picker("Operating system", selection: $isoSystem) {
+                Text("Linux").tag("Linux")
+                Text("Windows").tag("Windows")
+            }
+            .pickerStyle(.segmented)
+            .disabled(installer.busy)
             Stepper("Memory: \(ramGB) GB", value: $ramGB, in: 2...max(Device.suggestedRAMGB, 2))
                 .font(.system(size: 15))
             Stepper("Disk: up to \(diskGB) GB", value: $diskGB, in: 32...256, step: 16)
@@ -472,7 +484,7 @@ struct WindowsSettingsView: View {
                         }
                     }
                     .pickerStyle(.menu)
-                    Text("The shape of this \(Device.name)'s screen, from the next start. Windows draws with the emulated CPUs (it has no display driver for this machine), so a larger screen is slower. This is the largest size Windows offers: a Windows installed at another size keeps it until this one is chosen in its Settings, System, Display.")
+                    Text(machine.isUEFILinux ? "The screen size takes effect at the next start. Linux ISO support is experimental; a larger screen may be slower." : "The shape of this \(Device.name)'s screen, from the next start. Windows draws with the emulated CPUs (it has no display driver for this machine), so a larger screen is slower. This is the largest size Windows offers: a Windows installed at another size keeps it until this one is chosen in its Settings, System, Display.")
                         .font(.system(size: 13)).foregroundStyle(Desk.dim)
                 }
                 .padding(17)
@@ -486,13 +498,14 @@ struct WindowsSettingsView: View {
                         machines.update(machine)
                     }))
                         .font(.system(size: 16))
-                    Text("Windows sees your fingers where they touch its picture, five at most, with its own gestures: tap, press and hold for a menu, drag to scroll, two fingers to zoom. Off, the picture is a trackpad's surface: one finger moves the pointer, two scroll.")
+                    Text("The guest sees your fingers where they touch the picture, if it supports the virtual touch screen. Turn this off to use the picture as a trackpad.")
                         .font(.system(size: 13)).foregroundStyle(Desk.dim)
                 }
                 .padding(17)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .deskCard()
 
+                if !machine.isUEFILinux {
                 DeskHeading("GPU")
                 VStack(alignment: .leading, spacing: 10) {
                     Toggle("GPU", isOn: Binding(get: { machine.gpu != false }, set: {
@@ -522,11 +535,12 @@ struct WindowsSettingsView: View {
                 .padding(17)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .deskCard()
+                }
 
                 if mediaBytes > 0 {
                     DeskHeading("Installation disc")
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("\(ByteText.string(UInt64(mediaBytes))), in the machine's USB CD-ROM drive. Remove it once Windows is at its desktop.")
+                        Text("\(ByteText.string(UInt64(mediaBytes))), in the machine's USB CD-ROM drive. Remove it after installation when the installer asks you to eject the disc.")
                             .font(.system(size: 14)).foregroundStyle(Desk.dim)
                         Button("Remove the Disc", role: .destructive) { installer.removeMedia(machine) }
                             .font(.system(size: 15, weight: .semibold))
