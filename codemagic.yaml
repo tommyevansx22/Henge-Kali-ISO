@@ -1,0 +1,38 @@
+workflows:
+  henge-ipa:
+    name: Experimental Henge ISO IPA
+    instance_type: mac_mini_m2
+    max_build_duration: 120
+    environment:
+      xcode: latest
+      vars:
+        HUSK: /tmp/henge-husk
+        IOS_DEPS: /tmp/henge-husk/build/ios-arm64/sysroot
+    scripts:
+      - name: Fetch Husk
+        script: git clone --depth 1 https://github.com/Leviidev/Husk.git "$HUSK"
+      - name: Install build tools
+        script: |
+          set -euxo pipefail
+          brew install xcodegen meson ninja pkg-config
+          rustup target add aarch64-apple-ios
+      - name: Build Husk dependencies
+        script: |
+          set -euxo pipefail
+          cd "$HUSK"
+          bash scripts/fetch_sources.sh
+          bash scripts/build_ios.sh libffi glib libslirp
+          bash scripts/build_rppairing_ios.sh
+      - name: Build Henge and package IPA
+        script: |
+          set -euxo pipefail
+          cd "$CM_BUILD_DIR"
+          zsh ios/scripts/fetch_deps.sh
+          zsh tools/build_ios_restore.sh
+          make ios-lib
+          zsh ios/scripts/fetch_uefi.sh
+          HENGE_ENTITLEMENTS=Henge/Henge.personal.entitlements zsh ios/scripts/package_ipa.sh
+          mkdir -p "$CM_BUILD_DIR/artifacts"
+          cp "$HOME/Desktop/Henge.ipa" "$CM_BUILD_DIR/artifacts/Henge.ipa"
+    artifacts:
+      - artifacts/Henge.ipa
