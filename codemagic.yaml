@@ -15,10 +15,15 @@ workflows:
         script: |
           set -euxo pipefail
           brew install xcodegen meson ninja pkg-config
+          export PATH="$HOME/.cargo/bin:$PATH"
+          if ! command -v rustup >/dev/null 2>&1; then
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+          fi
           rustup target add aarch64-apple-ios
       - name: Build Husk dependencies
         script: |
           set -euxo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
           cd "$HUSK"
           bash scripts/fetch_sources.sh
           bash scripts/build_ios.sh libffi glib libslirp
@@ -26,6 +31,7 @@ workflows:
       - name: Build Henge and package IPA
         script: |
           set -euxo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
           cd "$CM_BUILD_DIR"
           zsh ios/scripts/fetch_deps.sh
           zsh tools/build_ios_restore.sh
