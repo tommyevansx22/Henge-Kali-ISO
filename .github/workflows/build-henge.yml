@@ -17,6 +17,9 @@ name: Build Henge IPA
 on:
   workflow_dispatch: {}
 
+permissions:
+  contents: read
+
 env:
   HUSK: ${{ github.workspace }}/Husk
   # The Makefile takes its slirp headers from IOS_DEPS, not HUSK:
@@ -37,6 +40,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: Henge
+          persist-credentials: false
 
       # fetch_deps.sh copies prebuilt pieces out of a BUILT Husk checkout:
       # StikJIT.xcframework (vendored in Husk's repo, comes with checkout),
@@ -47,6 +51,7 @@ jobs:
         with:
           repository: Leviidev/Husk
           path: Husk
+          persist-credentials: false
 
       - name: Cache Husk's sources and prebuilt iOS pieces
         uses: actions/cache@v4
@@ -97,9 +102,13 @@ jobs:
         working-directory: Henge
         run: make ios-lib
 
+      - name: Fetch UEFI firmware for ISO virtual machines
+        working-directory: Henge
+        run: zsh ios/scripts/fetch_uefi.sh
+
       - name: Package Henge.ipa
         working-directory: Henge
-        run: zsh ios/scripts/package_ipa.sh
+        run: HENGE_ENTITLEMENTS=Henge/Henge.personal.entitlements zsh ios/scripts/package_ipa.sh
         # For a TrollStore build instead, use:
         #   zsh ios/scripts/package_ipa.sh --trollstore
         # which writes ~/Desktop/Henge.tipa instead.
